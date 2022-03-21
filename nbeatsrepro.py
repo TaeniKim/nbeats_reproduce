@@ -332,7 +332,7 @@ def group_values(values: np.ndarray, groups: np.ndarray, group_name: str) -> np.
     :param group_name: Group name to filter by.
     :return: Filtered and cleaned timeseries - values.
     """
-    values = np.array([v[~np.isnan(v, dtype=np.float64)] for v in values[groups == group_name]])
+    values = np.array([v for v in values[groups == group_name]], dtype=object)
     
     return values    
 
