@@ -9,9 +9,11 @@ from torch import optim
 
 from collections import OrderedDict
 from typing import Tuple
+from pathlib import Path
 
 from datetime import datetime as dt
 from dataclasses import dataclass
+from tqdm import tqdm
 
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
@@ -43,9 +45,9 @@ class M4Config:
 
 
     def __init__(self):
-        self.pathDatasetOrg = r"C:\Users\taeni\Documents\GitHub\N-BEATS\datasets\m4/"
-        self.pathDatasetDump = r"C:\Users\taeni\Documents\Project train/dataset/"
-        self.pathResult = r"C:\Users\taeni\Documents\Project train/result/"
+        self.pathDatasetOrg = os.getcwd() + "/datasets/m4/"
+        self.pathDatasetDump = os.getcwd() + r"/datasets/m4/"
+        self.pathResult = os.getcwd() + r"/results/m4/"
     
         self.seasonal_patterns = ['Yearly', 'Quarterly', 'Monthly',
                                   'Weekly', 'Daily', 'Hourly']
@@ -91,13 +93,13 @@ class M4Config:
         self.stacks = 30
         self.layer_size = 512
         # trend
-        self.trend_blocks = 3
         self.trend_layers = 4
+        self.trend_blocks = 3        
         self.trend_layer_size = 256
         self.trend_degree_of_polynomial = 2
         # seasonality
-        self.seasonality_blocks = 3
         self.seasonality_layers = 4
+        self.seasonality_blocks = 3        
         self.seasonality_layer_size = 2048
         self.seasonality_num_of_harmonics = 1        
        
@@ -125,7 +127,7 @@ class M4Dataset:
         self.pathDatasetOrg = path_org
         self.pathDatasetDump = path_dump
         
-        info = pd.read_csv(path_org + "m4_info.csv") 
+        info = pd.read_csv(path_org + "M4-info.csv") 
         self.info = info
         self.ids = info.M4id.values
         self.groups = info.SP.values
@@ -144,12 +146,14 @@ class M4Dataset:
             np.array(list(ts_dict.values())).dump(cache_path)
 
         if not os.path.isfile(path_dump + "train.npz"):
-            build_cache('*-train.csv', os.path.join(path_dump, 'train.npz'))
+            print("Dump train datset process...")
+            build_cache('Train/*-train.csv', os.path.join(path_dump, 'train.npz'))
         else:
             print("Skip train dataset process... train.npz")
         
         if not os.path.isfile(path_dump + "test.npz"):
-            build_cache('*-test.csv', os.path.join(path_dump, 'test.npz'))
+            print("Dump test datset process...")
+            build_cache('Test/*-test.csv', os.path.join(path_dump, 'test.npz'))
         else:
             print("Skip test dataset process... test.npz")
         
@@ -284,61 +288,91 @@ class SeasonalityBasis(t.nn.Module):
         return backcast, forecast
 
 
-class CommonUtil:
-    @staticmethod
-    def group_values(values: np.ndarray, groups: np.ndarray, group_name: str, ids: np.ndarray) -> (np.ndarray , np.ndarray):
-        """
-        Filter values array by group indices and clean it from NaNs.
-    
-        :param values: Values to filter.
-        :param groups: Timeseries groups.
-        :param group_name: Group name to filter by.
-        :return: Filtered and cleaned timeseries - (ids , values).
-        """
-        ids = np.array([v for v in ids[groups == group_name]])
-        values = np.array([v[~np.isnan(v)] for v in values[groups == group_name]])
-        return ids, values    
-    
-    @staticmethod
-    def do_sample(ts, insample_size, outsample_size, batch_size, window_sampling_limit):
-        insample = np.zeros((batch_size, insample_size))
-        insample_mask = np.zeros((batch_size, insample_size))
-        outsample = np.zeros((batch_size, outsample_size))
-        outsample_mask = np.zeros((batch_size, outsample_size))
-        sampled_ts_indices = np.random.randint(len(ts), size=batch_size)
-        for i, sampled_index in enumerate(sampled_ts_indices):
-            sampled_timeseries = ts[sampled_index]
-            cut_point = np.random.randint(low=max(1, len(sampled_timeseries) - window_sampling_limit),
-                                           high=len(sampled_timeseries),
-                                           size=1)[0]
-    
-            insample_window = sampled_timeseries[max(0, cut_point - insample_size):cut_point]
-            insample[i, -len(insample_window):] = insample_window
-            insample_mask[i, -len(insample_window):] = 1.0
-            outsample_window = sampled_timeseries[
-                               cut_point:min(len(sampled_timeseries), cut_point + outsample_size)]
-            outsample[i, :len(outsample_window)] = outsample_window
-            outsample_mask[i, :len(outsample_window)] = 1.0
-            
-        return insample, insample_mask, outsample, outsample_mask
+# util
+def median_ensemble(experiment_path: str,
+                    summary_filter: str = '*',
+                    forecast_file: str = 'forecast.csv',
+                    group_by: str = 'id'):
+    """
+    Build a median ensemble from files found in the experiment path.
 
-    @staticmethod
-    def last_insample_window(ts, insample_size):
-        """
-        The last window of insample size of all timeseries.
-        This function does not support batching and does not reshuffle timeseries.
+    :param experiment_path: Experiment path.
+    :param summary_filter: Filter which experiment instances should be included in ensemble.
+    :param forecast_file: Name of the file with results.
+    :param group_by: Grouping key.
+    :return: Pandas dataframe with median forecasts.
+    """
+    return pd.concat([pd.read_csv(file)
+                      for file in
+                      tqdm(glob(os.path.join(experiment_path, summary_filter + forecast_file)))], sort=False) \
+        .set_index(group_by).groupby(level=group_by, sort=False).median().values
     
-        :return: Last insample window of all timeseries. Shape "timeseries, insample size"
-        """
-        insample = np.zeros((len(ts), insample_size))
-        insample_mask = np.zeros((len(ts), insample_size))
-        for i, ts in enumerate(ts):
-            ts_last_window = ts[-insample_size:]
-            insample[i, -len(ts):] = ts_last_window
-            insample_mask[i, -len(ts):] = 1.0
-        return insample, insample_mask
 
-# common util 2
+def group_ids(ids: np.ndarray, groups: np.ndarray, group_name: str) -> np.ndarray:
+    """
+    Filter ids array by group indices and clean it from NaNs.
+
+    :param values: Values to filter.
+    :param groups: Timeseries groups.
+    :param group_name: Group name to filter by.
+    :return: Filtered and cleaned timeseries - (ids , values).
+    """
+    ids = np.array([v for v in ids[groups == group_name]], dtype=object)
+    return ids
+
+
+def group_values(values: np.ndarray, groups: np.ndarray, group_name: str) -> np.ndarray:
+    """
+    Filter values array by group indices and clean it from NaNs.
+
+    :param values: Values to filter.
+    :param groups: Timeseries groups.
+    :param group_name: Group name to filter by.
+    :return: Filtered and cleaned timeseries - (ids , values).
+    """
+    values = np.array([v[~np.isnan(v)] for v in values[groups == group_name]], dtype=object)
+    return values    
+
+
+def do_sample(ts, insample_size, outsample_size, batch_size, window_sampling_limit):
+    insample = np.zeros((batch_size, insample_size))
+    insample_mask = np.zeros((batch_size, insample_size))
+    outsample = np.zeros((batch_size, outsample_size))
+    outsample_mask = np.zeros((batch_size, outsample_size))
+    sampled_ts_indices = np.random.randint(len(ts), size=batch_size)
+    for i, sampled_index in enumerate(sampled_ts_indices):
+        sampled_timeseries = ts[sampled_index]
+        cut_point = np.random.randint(low=max(1, len(sampled_timeseries) - window_sampling_limit),
+                                       high=len(sampled_timeseries),
+                                       size=1)[0]
+
+        insample_window = sampled_timeseries[max(0, cut_point - insample_size):cut_point]
+        insample[i, -len(insample_window):] = insample_window
+        insample_mask[i, -len(insample_window):] = 1.0
+        outsample_window = sampled_timeseries[
+                           cut_point:min(len(sampled_timeseries), cut_point + outsample_size)]
+        outsample[i, :len(outsample_window)] = outsample_window
+        outsample_mask[i, :len(outsample_window)] = 1.0
+        
+    return insample, insample_mask, outsample, outsample_mask
+
+
+def last_insample_window(ts, insample_size):
+    """
+    The last window of insample size of all timeseries.
+    This function does not support batching and does not reshuffle timeseries.
+
+    :return: Last insample window of all timeseries. Shape "timeseries, insample size"
+    """
+    insample = np.zeros((len(ts), insample_size))
+    insample_mask = np.zeros((len(ts), insample_size))
+    for i, ts in enumerate(ts):
+        ts_last_window = ts[-insample_size:]
+        insample[i, -len(ts):] = ts_last_window
+        insample_mask[i, -len(ts):] = 1.0
+    return insample, insample_mask
+
+
 def default_device() -> t.device:
     """
     PyTorch default device is GPU when available, CPU otherwise.
@@ -356,6 +390,7 @@ def to_tensor(array: np.ndarray) -> t.Tensor:
     """
     return t.tensor(array, dtype=t.float32).to(default_device())
 
+# loss function
 def divide_no_nan(a, b):
     """
     a/b where the resulted NaN or Inf are replaced by 0.
@@ -418,13 +453,87 @@ def __loss_fn(loss_name: str):
 
     return loss
 
+# metric
+def mase(forecast: np.ndarray, insample: np.ndarray, outsample: np.ndarray, frequency: int) -> np.ndarray:
+    """
+    MASE loss as defined in "Scaled Errors" https://robjhyndman.com/papers/mase.pdf
+
+    :param forecast: Forecast values. Shape: batch, time_o
+    :param insample: Insample values. Shape: batch, time_i
+    :param outsample: Target values. Shape: batch, time_o
+    :param frequency: Frequency value
+    :return: Same shape array with error calculated for each time step
+    """
+    return np.mean(np.abs(forecast - outsample)) / np.mean(np.abs(insample[:-frequency] - insample[frequency:]))
 
 
+def nd(forecast: np.ndarray, target: np.ndarray) -> float:
+    """
+    Normalized deviation as defined in https://www.cs.utexas.edu/~rofuyu/papers/tr-mf-nips.pdf
 
+    :param forecast: Forecast values. Shape: batch, time
+    :param target: Target values. Shape: batch, time
+    :return: Error value
+    """
+    return np.mean(np.abs(target - forecast)) / np.mean(np.abs(target))
+
+
+def nrmse(forecast: np.ndarray, target: np.ndarray) -> float:
+    """
+    Normalized RMSE as defined in https://www.cs.utexas.edu/~rofuyu/papers/tr-mf-nips.pdf
+
+    :param forecast: Forecast values. Shape: batch, time
+    :param target: Target values. Shape: batch, time
+    :return: Error values
+    """
+    return np.sqrt(np.mean(np.power((forecast - target), 2))) / (np.mean(np.abs(target)))
+
+
+def mape(forecast: np.ndarray, target: np.ndarray) -> np.ndarray:
+    """
+    MAPE loss as defined in: https://en.wikipedia.org/wiki/Mean_absolute_percentage_error
+
+    :param forecast: Predicted values.
+    :param target: Target values.
+    :return: Same shape array with error calculated for each time step
+    """
+    return 100 * np.abs(forecast - target) / target
+
+
+def smape_1(forecast: np.ndarray, target: np.ndarray) -> np.ndarray:
+    """
+    sMAPE loss as defined in "Appendix A" of
+    http://www.forecastingprinciples.com/files/pdf/Makridakia-The%20M3%20Competition.pdf
+
+    :param forecast: Forecast values. Shape: batch, time
+    :param target: Target values. Shape: batch, time
+    :return: Same shape array with error calculated for each time step
+    """
+    return 200 * np.abs(forecast - target) / (target + forecast)
+
+
+def smape_2(forecast: np.ndarray, target: np.ndarray) -> np.ndarray:
+    """
+    sMAPE loss as defined in https://robjhyndman.com/hyndsight/smape/ (Makridakis 1993)
+
+    :param forecast: Forecast values. Shape: batch, time
+    :param target: Target values. Shape: batch, time
+    :return: Same shape array with sMAPE calculated for each time step of each timeseries.
+    """
+    denom = np.abs(target) + np.abs(forecast)
+    # divide by 1.0 instead of 0.0, in case when denom is zero the enumerator will be 0.0 anyway.
+    denom[denom == 0.0] = 1.0
+    return 200 * np.abs(forecast - target) / denom
+
+
+def check_directorys(f: str) -> None:
+    if not Path(f).is_dir():
+        print(f"create directory: {f.split(sep='/')[-1]}")
+        Path(f).mkdir(parents=True, exist_ok=True)
+        
 
 ###############################################################################
 # init
-cutil = CommonUtil()
 
 # M4 Experiments
 # Models: seasonal -> lookback -> loss
@@ -440,8 +549,9 @@ def m4experiments(cfg: M4Config, dataset: M4Dataset, model_type='generic') -> No
                 timeseries_frequency=cfg.frequency_map[seasonal_pattern]
     
                 # Data sampling
-                train_ids, train_values = cutil.group_values(trainset, dataset.groups, seasonal_pattern, dataset.ids)
-                test_ids, test_values = cutil.group_values(testset, dataset.groups, seasonal_pattern, dataset.ids)
+                train_ids = group_values(dataset.ids, dataset.groups, seasonal_pattern)
+                train_values = group_values(trainset, dataset.groups, seasonal_pattern)
+                #test_values = group_values(testset, dataset.groups, seasonal_pattern)
                 
                 timeseries = [ts for ts in train_values]
                 window_sampling_limit = int(history_size_in_horizons * horizon)
@@ -459,8 +569,8 @@ def m4experiments(cfg: M4Config, dataset: M4Dataset, model_type='generic') -> No
                                                     for _ in range(cfg.stacks)]))
                 elif model_type == 'interpretable':
                     trend_block = NBeatsBlock(input_size=insample_size,
-                                              theta_size=2 * (cfg.degree_of_polynomial + 1),
-                                              basis_function=TrendBasis(degree_of_polynomial=cfg.degree_of_polynomial,
+                                              theta_size=2 * (cfg.trend_degree_of_polynomial + 1),
+                                              basis_function=TrendBasis(degree_of_polynomial=cfg.trend_degree_of_polynomial,
                                                                         backcast_size=insample_size,
                                                                         forecast_size=outsample_size),
                                               layers=cfg.trend_layers,
@@ -468,8 +578,8 @@ def m4experiments(cfg: M4Config, dataset: M4Dataset, model_type='generic') -> No
                     
                     seasonality_block = NBeatsBlock(input_size=insample_size,
                                                     theta_size=4 * int(
-                                                        np.ceil(cfg.num_of_harmonics / 2 * outsample_size) - (cfg.num_of_harmonics - 1)),
-                                                    basis_function=SeasonalityBasis(harmonics=cfg.num_of_harmonics,
+                                                        np.ceil(cfg.seasonality_num_of_harmonics / 2 * outsample_size) - (cfg.seasonality_num_of_harmonics - 1)),
+                                                    basis_function=SeasonalityBasis(harmonics=cfg.seasonality_num_of_harmonics,
                                                                                     backcast_size=insample_size,
                                                                                     forecast_size=outsample_size),
                                                     layers=cfg.seasonality_layers,
@@ -494,11 +604,11 @@ def m4experiments(cfg: M4Config, dataset: M4Dataset, model_type='generic') -> No
                 forecasts = []
                 for i in range(1, iterations + 1):
                     model.train()
-                    training_set = cutil.do_sample(timeseries,
-                                                   insample_size,
-                                                   outsample_size,
-                                                   batch_size,
-                                                   window_sampling_limit)
+                    training_set = do_sample(timeseries,
+                                             insample_size,
+                                             outsample_size,
+                                             batch_size,
+                                             window_sampling_limit)
                 
                     x, x_mask, y, y_mask = map(to_tensor, training_set)
                     optimizer.zero_grad()
@@ -519,7 +629,7 @@ def m4experiments(cfg: M4Config, dataset: M4Dataset, model_type='generic') -> No
     
                 # Evaluate
                 x, x_mask = map(to_tensor,
-                                cutil.last_insample_window(timeseries, insample_size))
+                                last_insample_window(timeseries, insample_size))
                 model.eval()
                 with t.no_grad():
                     forecasts.extend(model(x, x_mask).cpu().detach().numpy())            
@@ -529,21 +639,139 @@ def m4experiments(cfg: M4Config, dataset: M4Dataset, model_type='generic') -> No
                 forecasts_df.index = train_ids
                 forecasts_df.index.name = 'id'
                 f = cfg.pathResult + f'{model_type}/'
+                check_directorys(f)
                 f += dt.now().strftime("%Y-%m-%d %H%M%S")
-                f += f'+{seasonal_pattern}+{lookback}+{loss}+'
-                print(f'Dump start: {f}')
-                forecasts_df.to_csv(f + 'forecast.csv')
+                f += f'+{seasonal_pattern}+{lookback}+{loss}+forecast.csv'
+                print(f'Dump start: {f}')                
+                forecasts_df.to_csv(f)
+
+
+def summarize_groups(groups, scores):
+    """
+    Re-group scores respecting M4 rules.
+    :param scores: Scores per group.
+    :return: Grouped scores.
+    """
+    scores_summary = OrderedDict()
+
+    def group_count(group_name):
+        return len(np.where(groups == group_name)[0])
+
+    weighted_score = {}
+    for g in ['Yearly', 'Quarterly', 'Monthly']:
+        weighted_score[g] = scores[g] * group_count(g)
+        scores_summary[g] = scores[g]
+
+    others_score = 0
+    others_count = 0
+    for g in ['Weekly', 'Daily', 'Hourly']:
+        others_score += scores[g] * group_count(g)
+        others_count += group_count(g)
+    weighted_score['Others'] = others_score
+    scores_summary['Others'] = others_score / others_count
+
+    average = np.sum(list(weighted_score.values())) / len(groups)
+    scores_summary['Average'] = average
+
+    return scores_summary
+
+
+def m4evaluate(cfg: M4Config, dataset: M4Dataset, target_path: str) -> None:
+    # Need path check later... 
+    target_path = cfg.pathResult + f'/{target_path}/'
+    forecast = median_ensemble(experiment_path = target_path,
+                               summary_filter = '**',
+                               forecast_file = 'forecast.csv',
+                               group_by = 'id')
+    forecast = np.array([v[~np.isnan(v)] for v in forecast], dtype=object)
+    
+    groups = dataset.groups 
+    grouped_smapes = {group_name: np.mean(smape_2(forecast=group_values(values=forecast,
+                                                                        groups=groups,
+                                                                        group_name=group_name),
+                                                  target=group_values(values=dataset.testset,
+                                                                      groups=groups,
+                                                                      group_name=group_name)))
+                       for group_name in np.unique(groups)}
+    grouped_smapes = summarize_groups(groups, grouped_smapes)
+
+    grouped_owa = OrderedDict()
+
+    naive2_forecasts = pd.read_csv(os.path.join(cfg.pathDatasetOrg, 'submission-Naive2.csv')).values[:, 1:].astype(np.float32)
+    naive2_forecasts = np.array([v[~np.isnan(v)] for v in naive2_forecasts], dtype=object)
+
+    model_mases = {}
+    naive2_smapes = {}
+    naive2_mases = {}
+    for group_name in np.unique(groups):
+        model_forecast = group_values(forecast,
+                                      groups,
+                                      group_name)
+        naive2_forecast = group_values(naive2_forecasts,
+                                       groups,
+                                       group_name)
+
+        target = group_values(dataset.testset,
+                              groups,
+                              group_name)
+        # all timeseries within group have same frequency
+        frequency = dataset.frequencies[groups == group_name][0]
+        insample = group_values(dataset.trainset,
+                                groups,
+                                group_name)
+
+        model_mases[group_name] = np.mean([mase(forecast=model_forecast[i],
+                                                insample=insample[i],
+                                                outsample=target[i],
+                                                frequency=frequency) for i in range(len(model_forecast))])
+        naive2_mases[group_name] = np.mean([mase(forecast=naive2_forecast[i],
+                                                 insample=insample[i],
+                                                 outsample=target[i],
+                                                 frequency=frequency) for i in range(len(model_forecast))])
+
+        naive2_smapes[group_name] = np.mean(smape_2(naive2_forecast, target))
+        
+    grouped_model_mases = summarize_groups(groups, model_mases)
+    grouped_naive2_smapes = summarize_groups(groups, naive2_smapes)
+    grouped_naive2_mases = summarize_groups(groups, naive2_mases)    
+    for k in grouped_model_mases.keys():
+        grouped_owa[k] = (grouped_model_mases[k] / grouped_naive2_mases[k] +
+                          grouped_smapes[k] / grouped_naive2_smapes[k]) / 2
+    
+    def round_all(d):
+        return dict(map(lambda kv: (kv[0], np.round(kv[1], 3)), d.items()))
+    
+    return round_all(grouped_smapes), round_all(grouped_owa)    
+
 
 if __name__ == '__main__':
     # Set Config
     m4cfg = M4Config()
+    m4cfg.lookbacks = [2, 4, 7]
     
     # M4 Dataset
     m4dataset = M4Dataset(path_org = m4cfg.pathDatasetOrg,
                         path_dump = m4cfg.pathDatasetDump)
     
     # M4 Experiments
+    print("Experiment - generic")
     m4experiments(m4cfg, m4dataset, 'generic')
+    print("Experiment - interpretable")
+    m4experiments(m4cfg, m4dataset, 'interpretable')
+    
+    # M4 Evaluate
+    eval_generic = m4evaluate(m4cfg, m4dataset, 'generic')    
+    eval_generic = pd.DataFrame(eval_generic, index=['SMAPE', 'OWA'])
+    
+    eval_interpretable = m4evaluate(m4cfg, m4dataset, 'interpretable')
+    eval_interpretable = pd.DataFrame(eval_interpretable, index=['SMAPE', 'OWA'])
+    
+    eval_ensemble = m4evaluate(m4cfg, m4dataset, '*')    
+    eval_ensemble = pd.DataFrame(eval_ensemble, index=['SMAPE', 'OWA'])
+    
+    
+    
+    
     
 
 
