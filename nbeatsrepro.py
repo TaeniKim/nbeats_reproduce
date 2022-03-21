@@ -132,16 +132,6 @@ class M4Dataset:
         self.frequencies = info.Frequency.values
         self.horizons = info.Horizon.values
 
-        if not os.path.isfile(path_dump + "train.npz"):
-            self.build_cache('*-train.csv', os.path.join(path_dump, 'train.npz'))
-        else:
-            print("Skip train dataset process... train.npz")
-        
-        if not os.path.isfile(path_dump + "test.npz"):
-            self.build_cache('*-test.csv', os.path.join(path_dump, 'test.npz'))
-        else:
-            print("Skip test dataset process... test.npz")
-
         def build_cache(files: str, cache_path: str) -> None:
             ts_dict = OrderedDict(list(zip(info.M4id.values, [[]] * len(info.M4id.values))))
         
@@ -152,6 +142,16 @@ class M4Dataset:
                     values = row.values
                     ts_dict[m4id] = values[~np.isnan(values)]
             np.array(list(ts_dict.values())).dump(cache_path)
+
+        if not os.path.isfile(path_dump + "train.npz"):
+            build_cache('*-train.csv', os.path.join(path_dump, 'train.npz'))
+        else:
+            print("Skip train dataset process... train.npz")
+        
+        if not os.path.isfile(path_dump + "test.npz"):
+            build_cache('*-test.csv', os.path.join(path_dump, 'test.npz'))
+        else:
+            print("Skip test dataset process... test.npz")
         
         self.trainset = np.load(os.path.join(path_dump, 'train.npz'),
                                 allow_pickle=True)        
