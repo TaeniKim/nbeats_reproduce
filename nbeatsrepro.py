@@ -147,13 +147,15 @@ class M4Dataset:
 
         if not os.path.isfile(path_dump + "train.npz"):
             print("Dump train datset process...")
-            build_cache('Train/*-train.csv', os.path.join(path_dump, 'train.npz'))
+            build_cache(os.path.join(path_org,'Train/*-train.csv'),
+                        os.path.join(path_dump, 'train.npz'))
         else:
             print("Skip train dataset process... train.npz")
         
         if not os.path.isfile(path_dump + "test.npz"):
             print("Dump test datset process...")
-            build_cache('Test/*-test.csv', os.path.join(path_dump, 'test.npz'))
+            build_cache(os.path.join(path_org,'Test/*-test.csv'),
+                        os.path.join(path_dump, 'test.npz'))
         else:
             print("Skip test dataset process... test.npz")
         
@@ -539,7 +541,6 @@ def check_directorys(f: str) -> None:
 # Models: seasonal -> lookback -> loss
 def m4experiments(cfg: M4Config, dataset: M4Dataset, model_type='generic') -> None:
     trainset = dataset.trainset
-    testset = dataset.testset
     for seasonal_pattern in cfg.seasonal_patterns:
         for j, lookback in enumerate(cfg.lookbacks):
             for k, loss in enumerate(cfg.losses):            
