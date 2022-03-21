@@ -528,7 +528,7 @@ def m4experiments(cfg: M4Config, dataset: M4Dataset, model_type='generic') -> No
                                             columns=[f'V{i + 1}' for i in range(horizon)])
                 forecasts_df.index = train_ids
                 forecasts_df.index.name = 'id'
-                f = cfg.pathResult
+                f = cfg.pathResult + f'{model_type}/'
                 f += dt.now().strftime("%Y-%m-%d %H%M%S")
                 f += f'+{seasonal_pattern}+{lookback}+{loss}+'
                 print(f'Dump start: {f}')
