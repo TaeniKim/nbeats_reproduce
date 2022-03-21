@@ -317,7 +317,7 @@ def group_ids(ids: np.ndarray, groups: np.ndarray, group_name: str) -> np.ndarra
     :param values: Values to filter.
     :param groups: Timeseries groups.
     :param group_name: Group name to filter by.
-    :return: Filtered and cleaned timeseries - (ids , values).
+    :return: Filtered and cleaned timeseries - ids.
     """
     ids = np.array([v for v in ids[groups == group_name]], dtype=object)
     return ids
@@ -330,9 +330,9 @@ def group_values(values: np.ndarray, groups: np.ndarray, group_name: str) -> np.
     :param values: Values to filter.
     :param groups: Timeseries groups.
     :param group_name: Group name to filter by.
-    :return: Filtered and cleaned timeseries - (ids , values).
+    :return: Filtered and cleaned timeseries - values.
     """
-    values = np.array([v[~np.isnan(v)] for v in values[groups == group_name]])
+    values = np.array([v[~np.isnan(v, dtype=np.float64)] for v in values[groups == group_name]])
     
     return values    
 
