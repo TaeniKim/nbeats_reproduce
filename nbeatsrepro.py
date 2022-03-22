@@ -45,9 +45,9 @@ class M4Config:
 
 
     def __init__(self):
-        self.pathDatasetOrg = os.getcwd() + "/datasets/m4/"
-        self.pathDatasetDump = os.getcwd() + r"/datasets/m4/"
-        self.pathResult = os.getcwd() + r"/results/m4/"
+        self.pathDatasetOrg = r'C:/Users/taeni/Documents/GitHub/nbeats_reproduce/datasets/m4/'
+        self.pathDatasetDump = r'C:/Users/taeni/Documents/GitHub/nbeats_reproduce/datasets/m4/'
+        self.pathResult = r'C:/Users/taeni/Documents/GitHub/nbeats_reproduce/results/m4/'
     
         self.seasonal_patterns = ['Yearly', 'Quarterly', 'Monthly',
                                   'Weekly', 'Daily', 'Hourly']
@@ -598,7 +598,6 @@ def m4experiments(cfg: M4Config, dataset: M4Dataset, model_type='generic') -> No
                 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
                 training_loss_fn = __loss_fn(loss)
                 iterations = cfg.iterations[seasonal_pattern]
-                iterations = int(iterations / 1000) # Test
                 lr_decay_step = iterations // 3            
                 if lr_decay_step == 0:
                     lr_decay_step = 1
