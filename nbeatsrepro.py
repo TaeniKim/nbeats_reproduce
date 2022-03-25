@@ -17,6 +17,8 @@ from tqdm import tqdm
 
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
+np.random.seed(2021)
+
 @dataclass
 class M4Config:
     pathDatasetOrg: str
@@ -209,8 +211,8 @@ class NBeats(t.nn.Module):
         self.blocks = blocks
 
     def forward(self, x: t.Tensor, input_mask: t.Tensor) -> t.Tensor:
-        residuals = x.flip(dims=(1,))
-        input_mask = input_mask.flip(dims=(1,))
+        residuals = x.flip(dims=(1,)) # left<->right
+        input_mask = input_mask.flip(dims=(1,)) # left<->right
         forecast = x[:, -1:]
         for i, block in enumerate(self.blocks):
             backcast, block_forecast = block(residuals)
@@ -544,7 +546,7 @@ def m4experiments(cfg: M4Config, dataset: M4Dataset, model_type='generic') -> No
     trainset = dataset.trainset
     for seasonal_pattern in cfg.seasonal_patterns:
         for j, lookback in enumerate(cfg.lookbacks):
-            for k, loss in enumerate(cfg.losses):            
+            for k, loss in enumerate(cfg.losses):
                 history_size_in_horizons = cfg.history_size[seasonal_pattern]
                 horizon = cfg.horizons_map[seasonal_pattern]
                 input_size = lookback * horizon    
@@ -612,7 +614,7 @@ def m4experiments(cfg: M4Config, dataset: M4Dataset, model_type='generic') -> No
                                              window_sampling_limit)
                 
                     x, x_mask, y, y_mask = map(to_tensor, training_set)
-                    optimizer.zero_grad()
+                    optimizer.zero_grad() # init gradients before back-propagation
                     forecast = model(x, x_mask)
                     training_loss = training_loss_fn(x, timeseries_frequency, forecast, y, y_mask)
                 
@@ -626,6 +628,13 @@ def m4experiments(cfg: M4Config, dataset: M4Dataset, model_type='generic') -> No
                     for param_group in optimizer.param_groups:
                         param_group["lr"] = learning_rate * 0.5 ** (i // lr_decay_step)
                 
+                    if not (iterations > 15 and iterations % 100 != 0):
+                        f = f'./steps/{model_type}-{seasonal_pattern}-{lookback}-{loss}/'
+                        check_directorys(f)
+                        f += f'model_iter_{i}.pth'
+                        print('Save model:', f)
+                        t.save(model, f)
+                        
                     print(f'iter:{i}/{iterations} \t loss:{training_loss:.3f}')
     
                 # Evaluate
@@ -746,9 +755,19 @@ def m4evaluate(cfg: M4Config, dataset: M4Dataset, target_path: str) -> None:
 
 
 if __name__ == '__main__':
+    # working directory
+    os.chdir(r"C:\Users\taeni\Documents\GitHub\nbeats_reproduce/")
+    
     # Set Config
     m4cfg = M4Config()
     m4cfg.lookbacks = [2, 4, 7]
+    m4cfg.iterations = {'Yearly': 5,
+                        'Quarterly': 5,
+                        'Monthly': 5,
+                        'Weekly': 5,
+                        'Daily': 5,
+                        'Hourly': 5
+                    }
     
     # M4 Dataset
     m4dataset = M4Dataset(path_org = m4cfg.pathDatasetOrg,
@@ -769,15 +788,4 @@ if __name__ == '__main__':
     
     eval_ensemble = m4evaluate(m4cfg, m4dataset, '*')    
     eval_ensemble = pd.DataFrame(eval_ensemble, index=['SMAPE', 'OWA'])
-    
-    
-    
-    
-    
-
-
-
-
-
-
 
