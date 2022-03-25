@@ -604,12 +604,6 @@ def m4experiments(cfg: M4Config, dataset: M4Dataset, model_type='generic') -> No
                 if lr_decay_step == 0:
                     lr_decay_step = 1
                 
-                    
-                f = f'./steps/{model_type}-{seasonal_pattern}-{lookback}-{loss}/'
-                check_directorys(f)
-                f += 'model.pth'
-                print('Save model:', f)
-                t.save(model, f)
                 forecasts = []
                 for i in range(1, iterations + 1):
                     model.train()
@@ -634,14 +628,14 @@ def m4experiments(cfg: M4Config, dataset: M4Dataset, model_type='generic') -> No
                     for param_group in optimizer.param_groups:
                         param_group["lr"] = learning_rate * 0.5 ** (i // lr_decay_step)
                 
-                    if not (iterations > 15 and iterations % 100 != 0):
+                    if iterations <= 15 or i % 100 == 0:
                         f = f'./steps/{model_type}-{seasonal_pattern}-{lookback}-{loss}/'
                         check_directorys(f)
                         f += f'weight_iter_{i}.pth'
-                        print('Save model:', f)
-                        t.save(model.state_dict(), f)
-                        
-                    print(f'iter:{i}/{iterations} \t loss:{training_loss:.3f}')
+                        print('Save Model:', f)
+                        t.save(model, f)
+                        print(f'iter:{i}/{iterations} \t loss:{training_loss:.3f}')                       
+                    
     
                 # Evaluate
                 x, x_mask = map(to_tensor,
