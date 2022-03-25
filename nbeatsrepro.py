@@ -603,7 +603,13 @@ def m4experiments(cfg: M4Config, dataset: M4Dataset, model_type='generic') -> No
                 lr_decay_step = iterations // 3            
                 if lr_decay_step == 0:
                     lr_decay_step = 1
+                
                     
+                f = f'./steps/{model_type}-{seasonal_pattern}-{lookback}-{loss}/'
+                check_directorys(f)
+                f += 'model.pth'
+                print('Save model:', f)
+                t.save(model, f)
                 forecasts = []
                 for i in range(1, iterations + 1):
                     model.train()
@@ -631,9 +637,9 @@ def m4experiments(cfg: M4Config, dataset: M4Dataset, model_type='generic') -> No
                     if not (iterations > 15 and iterations % 100 != 0):
                         f = f'./steps/{model_type}-{seasonal_pattern}-{lookback}-{loss}/'
                         check_directorys(f)
-                        f += f'model_iter_{i}.pth'
+                        f += f'weight_iter_{i}.pth'
                         print('Save model:', f)
-                        t.save(model, f)
+                        t.save(model.state_dict(), f)
                         
                     print(f'iter:{i}/{iterations} \t loss:{training_loss:.3f}')
     

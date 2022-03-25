@@ -269,9 +269,51 @@ plt.plot(forecast_sin_template.transpose(0,1))
 
 
 ###############################################################################
-## Sesonally model init
+## training trend plot
+import torch as t
+from glob import glob
 
-import tensorboard
+model_type='interpretable'
+sp = ['Yearly', 'Quarterly', 'Monthly', 'Weekly', 'Daily', 'Hourly']
+horizons = [6, 8, 18, 13, 14, 48]
+lookbacks = [2, 3, 4, 5, 6, 7]
+losses = ['MASE', 'MAPE', 'SMAPE']
+
+idx = 0
+seasonal_pattern = sp[idx]
+horizon = horizons[idx]
+insample_size = horizon * lookbacks[idx]
+
+
+train_values = group_values(m4dataset.trainset, m4dataset.groups, seasonal_pattern)
+test_values = group_values(m4dataset.testset, m4dataset.groups, seasonal_pattern)
+
+timeseries = [ts for ts in train_values]
+
+x, x_mask = map(to_tensor, last_insample_window(timeseries, insample_size))
+
+f = r'C:\Users\taeni\Documents\Project train\steps/'
+f += f'{model_type}-{sp[0]}-{lookbacks[0]}-{losses[0]}/'
+
+lst=[]
+for i in range(len(glob(f+'*'))):
+    print(i)
+    model = t.load(f+f'model_iter_{i+1}.pth')
+    model.eval()
+    forecasts=[]
+    with t.no_grad():
+        forecasts.extend(model(x, x_mask).cpu().detach().numpy())            
+    
+    forecasts_df = pd.DataFrame(forecasts,
+                                columns=[f'V{i + 1}' for i in range(horizon)])
+    forecasts_df.index = m4dataset.train_ids
+    forecasts_df.index.name = 'id'
+    lst.append(forecasts)
+    
+
+
+
+
 
 
 
